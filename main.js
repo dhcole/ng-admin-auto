@@ -1,229 +1,107 @@
 (function () {
-    'use strict';
+  'use strict';
 
-    var app = angular.module('myApp', ['ng-admin']);
+  var initInjector = angular.injector(["ng"]);
+  var $http = initInjector.get("$http");
 
-    app.controller('myCtrl', function() {});
+  var app = angular.module('myApp', ['ng-admin']);
 
-    app.config(function(RestangularProvider, $httpProvider) {
-        RestangularProvider.addFullRequestInterceptor(function(element, operation, what, url, headers, params, httpConfig) {
-            headers = headers || {};
-            headers['Prefer'] = 'return=representation';
+  app.controller('myCtrl', function() {});
 
-            if (operation === 'getList') {
-                headers['Range-Unit'] = what;
-                headers['Range'] = ((params._page - 1) * params._perPage) + '-' + (params._page * params._perPage - 1);
-                delete params._page;
-                delete params._perPage;
+  app.config(function(RestangularProvider, $httpProvider) {
+      RestangularProvider.addFullRequestInterceptor(function(element, operation, what, url, headers, params, httpConfig) {
+          headers = headers || {};
+          headers['Prefer'] = 'return=representation';
 
-                if (params._sortField) {
-                    params.order = params._sortField + '.' + params._sortDir.toLowerCase();
-                    delete params._sortField;
-                    delete params._sortDir;
-                }
-            }
-        });
+          if (operation === 'getList') {
+              headers['Range-Unit'] = what;
+              headers['Range'] = ((params._page - 1) * params._perPage) + '-' + (params._page * params._perPage - 1);
+              delete params._page;
+              delete params._perPage;
 
-        RestangularProvider.addResponseInterceptor(function(data, operation, what, url, response, deferred) {
-            switch (operation) {
-                case 'get':
-                    return data[0];
-                case 'getList':
-                    response.totalCount = response.headers('Content-Range').split('/')[1];
-                    break;
-            }
+              if (params._sortField) {
+                  params.order = params._sortField + '.' + params._sortDir.toLowerCase();
+                  delete params._sortField;
+                  delete params._sortDir;
+              }
+          }
+      });
 
-            return data;
-        });
+      RestangularProvider.addResponseInterceptor(function(data, operation, what, url, response, deferred) {
+          switch (operation) {
+              case 'get':
+                  return data[0];
+              case 'getList':
+                  response.totalCount = response.headers('Content-Range').split('/')[1];
+                  break;
+          }
 
-        // @see https://github.com/mgonto/restangular/issues/603
-        $httpProvider.interceptors.push(function() {
-            return {
-                request: function(config) {
-                    var pattern = /\/(\d+)$/;
+          return data;
+      });
 
-                    if (pattern.test(config.url)) {
-                        config.params = config.params || {};
-                        config.params['id'] = 'eq.' + pattern.exec(config.url)[1];
-                        config.url = config.url.replace(pattern, '');
-                    }
+      // @see https://github.com/mgonto/restangular/issues/603
+      $httpProvider.interceptors.push(function() {
+          return {
+              request: function(config) {
+                  var pattern = /\/(\d+)$/;
 
-                    return config;
-                },
-            };
-        });
+                  if (pattern.test(config.url)) {
+                      config.params = config.params || {};
+                      config.params['id'] = 'eq.' + pattern.exec(config.url)[1];
+                      config.url = config.url.replace(pattern, '');
+                  }
+
+                  return config;
+              },
+          };
+      });
+  });
+
+  fetchData().then(fetchFields).then(bootstrapApplication);
+
+  function fetchData() {
+    return $http.get("http://localhost:3000/");
+  }
+
+  function fetchFields(response) {
+    app.tables = response.data[0];
+    // needs to be recursive
+    // need to figure out automatic selection of fields for lists vs records
+    // should there be tables of views?
+    return $http({
+      method: 'OPTIONS',
+      url: "http://localhost:3000/" + app.tables.name
     });
+
+  }
+
+  function bootstrapApplication(response) {
+
+    var tableName = app.tables.name;
 
     app.config(function (NgAdminConfigurationProvider) {
-        var nga = NgAdminConfigurationProvider;
 
-        var app = nga
-            .application('Ng-admin + PostgREST')
-            .baseApiUrl('https://postgrest.herokuapp.com/');
+      var nga = NgAdminConfigurationProvider;
 
-        var speaker = nga.entity('speakers');
-        var session = nga.entity('sessions');
-        var sponsor = nga.entity('sponsors');
+      var app = nga
+         .application('Ng-admin + PostgREST', true)
+         .baseApiUrl('http://localhost:3000/');
 
-        app
-            .addEntity(speaker)
-            .addEntity(session)
-            .addEntity(sponsor);
+      var table = nga.entity(tableName);
 
-        // speaker views -------------------------------------------------------
+      app.addEntity(table);
 
-        speaker.menuView()
-            .icon('<span class="glyphicon glyphicon-user"></span>');
+      table.listView()
+        .fields(response.data.columns.map(function(col) {
+          return nga.field(col.name);
+        }));
 
-        speaker.dashboardView()
-            .title('Last speakers')
-            .fields([
-                nga.field('id'),
-                nga.field('name'),
-                nga.field('twitter'),
-                nga.field('featured').type('boolean'),
-                nga.field('lineup_order').type('number'),
-            ]);
+      nga.configure(app);
 
-        speaker.listView()
-            .perPage(10)
-            .fields([
-                nga.field('id'),
-                nga.field('name'),
-                nga.field('twitter'),
-                nga.field('featured').type('boolean'),
-                nga.field('lineup_order').type('number'),
-            ])
-            .listActions(['edit', 'show']);
+  });
 
-        speaker.showView()
-            .fields([
-                nga.field('id'),
-                nga.field('name'),
-                nga.field('twitter'),
-                nga.field('avatar_url'),
-                nga.field('bio').type('text'),
-                nga.field('featured').type('boolean'),
-                nga.field('lineup_order').type('number'),
-            ]);
+  angular.bootstrap(document.getElementsByTagName('body')[0], ["myApp"]);
 
-        speaker.creationView()
-            .fields([
-                nga.field('name'),
-                nga.field('twitter'),
-                nga.field('avatar_url'),
-                nga.field('bio').type('text'),
-                nga.field('featured').type('boolean'),
-                nga.field('lineup_order').type('number'),
-            ]);
+  }
 
-        speaker.editionView()
-            .fields(speaker.creationView().fields());
-
-        // session views -------------------------------------------------------
-
-        session.menuView()
-            .icon('<span class="glyphicon glyphicon-calendar"></span>');
-
-        session.dashboardView()
-            .title('Last sessions')
-            .fields([
-                nga.field('id'),
-                nga.field('speaker_id', 'reference')
-                    .label('Speaker')
-                    .targetEntity(speaker)
-                    .targetField(nga.field('name')),
-                nga.field('start_time'),
-                nga.field('end_time'),
-                nga.field('location'),
-                nga.field('session_type'),
-            ]);
-
-        session.listView()
-            .fields([
-                nga.field('id'),
-                nga.field('speaker_id', 'reference')
-                    .label('Speaker')
-                    .targetEntity(speaker)
-                    .targetField(nga.field('name')),
-                nga.field('start_time'),
-                nga.field('end_time'),
-                nga.field('location'),
-                nga.field('session_type'),
-            ])
-            .filters([
-                nga.field('speaker_id', 'reference')
-                    .label('Speaker')
-                    .targetEntity(speaker)
-                    .targetField(nga.field('name')),
-                nga.field('location'),
-            ])
-            .listActions(['edit', 'show']);
-
-        session.showView()
-            .fields([
-                nga.field('id'),
-                nga.field('speaker_id'),
-                nga.field('start_time'),
-                nga.field('end_time'),
-                nga.field('location'),
-                nga.field('session_type'),
-            ]);
-
-        session.creationView()
-            .fields([
-                nga.field('speaker_id', 'reference')
-                    .targetEntity(speaker)
-                    .targetField(nga.field('name')),
-                nga.field('start_time'),
-                nga.field('end_time'),
-                nga.field('location'),
-                nga.field('session_type'),
-            ]);
-
-        session.editionView()
-            .fields(session.creationView().fields());
-
-        // sponsor views -------------------------------------------------------
-
-        sponsor.menuView()
-            .icon('<span class="glyphicon glyphicon-gift"></span>');
-
-        sponsor.dashboardView()
-            .title('Last sponsors')
-            .fields([
-                nga.field('id'),
-                nga.field('name'),
-                nga.field('site_url'),
-            ]);
-
-        sponsor.listView()
-            .fields([
-                nga.field('id'),
-                nga.field('name'),
-            ])
-            .listActions(['edit', 'show']);
-
-        sponsor.showView()
-            .fields([
-                nga.field('id'),
-                nga.field('name'),
-                nga.field('site_url'),
-                nga.field('logo_url'),
-            ]);
-
-        sponsor.creationView()
-            .fields([
-                nga.field('name'),
-                nga.field('site_url'),
-                nga.field('logo_url'),
-            ]);
-
-        sponsor.editionView()
-            .fields(sponsor.creationView().fields());
-
-        // ---------------------------------------------------------------------
-
-        nga.configure(app);
-    });
 }());
